@@ -28,12 +28,12 @@ package main
 
 import (
 	"flag"
-	"html/template"
 	"log"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
+	"text/template"
 )
 
 const (
