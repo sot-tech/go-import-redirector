@@ -27,13 +27,18 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"path"
 	"strings"
+	"syscall"
 	"text/template"
+	"time"
 )
 
 const (
@@ -44,6 +49,7 @@ const (
 	pRedirectDir  = "redirectDir"
 	pRedirectFile = "redirectFile"
 	qGoGet        = "go-get"
+	timeout       = time.Second
 )
 
 var tmpl = template.Must(template.New("main").Parse(`<!DOCTYPE html>
@@ -115,12 +121,12 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var redirect *url.URL
 		var err error
 		if redirect, err = h.prefix.Parse(path.Join(h.prefix.Path, base)); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		replacements[pSources] = redirect.String()
 		if redirect, err = h.redirect.Parse(path.Join(h.redirect.Path, base)); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		baseRedirect := redirect.String()
@@ -150,8 +156,20 @@ func main() {
 	if handler, err := New(*prefix, *vcs, *redirect, *redirectDir, *redirectFile, *forwardedHeader); err != nil {
 		log.Fatal(err)
 	} else {
-		if err = http.ListenAndServe(*listen, handler); err != nil {
-			log.Fatal(err)
+		s := http.Server{
+			Addr:         *listen,
+			Handler:      handler,
+			ReadTimeout:  timeout,
+			WriteTimeout: timeout,
 		}
+		go func() {
+			if err = s.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				log.Fatal(err)
+			}
+		}()
+		defer s.Close()
+		ch := make(chan os.Signal, 2)
+		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+		<-ch
 	}
 }
